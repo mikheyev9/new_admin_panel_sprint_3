@@ -1,0 +1,65 @@
+networks:
+  etl_network:
+    driver: bridge
+
+services:
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis_data:/data
+    command: redis-server
+    networks:
+      - etl_network
+
+  elasticsearch:
+    image: elasticsearch:8.6.2
+    container_name: elasticsearch
+    ports:
+      - "9200:9200"
+    volumes:
+      - ./data/es_data:/usr/share/elasticsearch/data
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms200m -Xmx200m
+    networks:
+      - etl_network
+
+  db:
+    image: postgres:15
+    container_name: movies-db
+    env_file:
+      - ./data/.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/database_dump.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./data/postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - etl_network
+
+  etl:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file:
+      - ./data/.env
+    container_name: etl_service
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
+    networks:
+      - etl_network
+
