@@ -7,7 +7,7 @@ def setup_global_logger(level: int = logging.INFO) -> None:
     if not root_logger.hasHandlers():
         handler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(funcName)s:%(lineno)d] - %(message)s"
         )
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)

@@ -8,6 +8,7 @@ dependencies = [
     "aiohttp>=3.11.11",
     "aioredis>=2.0.1",
     "asyncpg>=0.30.0",
+    "elasticsearch>=8.17.1",
     "pydantic>=2.10.5",
     "python-dotenv>=1.0.1",
     "pytz>=2024.2",
