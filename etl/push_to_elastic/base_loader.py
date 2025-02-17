@@ -8,11 +8,12 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from dataclasses import dataclass
 from typing import Any, List
+
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.exceptions import ApiError
 from elasticsearch.helpers import async_bulk
 from redis.asyncio.client import Pipeline
-from utils.waiting import WaitingManager
+
 from utils.backoff import backoff
 
 logger = logging.getLogger(__name__)
@@ -25,53 +26,66 @@ class BaseElasticConsumer(ABC, Generic[ModelType]):
 
     redis_conn: Any
     es_client: AsyncElasticsearch
-    batch_size: int = 10
-    queue_name: str = "default_queue"
-    es_index: str = "default_index"
+    
+    batch_size: int
+    queue_name: str
+    es_index: str
 
 
     def __post_init__(self):
-        self.wait = WaitingManager(
-            start_time=1,
-            max_time=60,
-            factor=2
-        )
+        self.wait_redis = asyncio.Event()
+        self.notify_task = asyncio.create_task(self.notify_on_new_data())  # Запускаем подписку на новые данные
+        
+        
+    async def notify_on_new_data(self):
+        """Подписка на уведомления о новых данных в очереди."""
+        pubsub = self.redis_conn.pubsub()
+        await pubsub.subscribe(f"{self.queue_name}:new_data")
+
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                logger.info(f"[{self.queue_name}] В очереди появились новые данные. Начинаем обработку...")
+                self.wait_redis.set()  # Разрешаем `fetch_from_queue` продолжить забор данных
+
         
     @property
     def transaction(self) -> Pipeline:
         """Returns Redis pipeline for atomic operations"""
         return self.redis_conn.pipeline()
         
-
+        
     async def __index_exists(self) -> bool:
         """Проверяет, существует ли индекс в Elasticsearch."""
         
-        try:
-            exists = await self.es_client.indices.exists(index=self.es_index)
-            if exists:
+        exists = await self.es_client.indices.exists(index=self.es_index)
+        match exists:
+            case True:
                 logger.info(f"Индекс {self.es_index} уже существует.")
-            else:
+            case False:
                 logger.info(f"Индекс {self.es_index} не найден.")
-            return exists
-        except Exception as e:
-            logger.error(f"Ошибка при проверке индекса: {e}")
-            return False
+        return exists
+      
 
 
     async def __create_index(self) -> None:
         """Создаёт индекс в Elasticsearch с заданными настройками и маппингом."""
-        
         try:
             await self.es_client.indices.create(
                 index=self.es_index,
                 body=self.get_index_settings()
             )
             logger.info(f"Индекс {self.es_index} успешно создан.")
-        except Exception as e:
-            logger.error(f"Ошибка создания индекса {self.es_index}: {e}")
+        
+        except ApiError as e:
+            if e.status_code == 400 and "resource_already_exists_exception" in str(e):
+                logger.warning(f"Индекс {self.es_index} уже существует. Пропускаем создание.")
+            else:
+                logger.error(f"Ошибка при создании индекса {self.es_index}: {e}")
+                raise
 
 
-    @backoff(exceptions=(aiohttp.ClientError, asyncio.TimeoutError))
+
+    @backoff(exceptions=(ApiError, asyncio.TimeoutError))
     async def ensure_index_exists(self) -> None:
         """Проверяет наличие индекса и создаёт его при отсутствии."""
         
@@ -85,59 +99,45 @@ class BaseElasticConsumer(ABC, Generic[ModelType]):
         Извлекает из Redis данные в количестве не более batch_size.
         
         Returns:
-            List[str]: Список извлеченных элементов. Пустой список, если очередь пуста
-            или произошла ошибка.
+            List[str]: Список извлеченных элементов. Пустой список, если очередь пуста.
         """
         
-        try:
+        while True:
             queue_length = await self.redis_conn.llen(self.queue_name)
             logger.debug(f"Длина очереди {self.queue_name}: {queue_length}")
-            
+
             if queue_length == 0:
-                logger.debug("Очередь пуста")
-                return []
+                logger.debug("Очередь пуста, жду новых данных...")
+                self.wait_redis.clear()
+                await self.wait_redis.wait()  # Ждём уведомления о появлении новых данных
+                continue  # Перепроверяем очередь после пробуждения
 
             fetch_count = min(queue_length, self.batch_size)
-        
+
             async with self.transaction as pipe:
                 pipe.lrange(self.queue_name, 0, fetch_count - 1)
                 pipe.ltrim(self.queue_name, fetch_count, -1)
                 
                 results = await pipe.execute()
-                
-                if not results or len(results) < 1:
-                    logger.error("Не удалось получить результаты из Redis pipeline")
-                    return []
-                    
                 fetched_data = results[0]
-                logger.debug(
-                    f"Успешно извлечено {len(fetched_data)} элементов "
-                    f"из очереди {self.queue_name}"
-                )
-                return fetched_data
                 
-        except Exception as e:
-            logger.exception(
-                f"Ошибка при извлечении данных из очереди {self.queue_name}: {str(e)}"
-            )
-            return []
+                return fetched_data
             
 
     @abstractmethod
     def get_index_settings(self) -> dict:
         """
         Должен вернуть настройки (settings и mappings) для создания индекса.
-        Например, для фильмов это может быть MOVIES_SETTINGS.
         """
         pass
 
 
     @abstractmethod
-    def validate_batch(self, docs_json: List[str]) -> List[ModelType]:
+    def validate_batch(self, docs: List[str]) -> List[ModelType]:
         """
         Валидирует и преобразует документы из очереди.
         Args:
-            docs_json: Список JSON строк с документами
+            docs_: Список строк с документами
         Returns:
             List[ModelType]: Список валидных Pydantic моделей
         """
@@ -229,30 +229,16 @@ class BaseElasticConsumer(ABC, Generic[ModelType]):
         Основной цикл: проверка наличия индекса, извлечение данных из очереди,
         валидация, формирование bulk-пейлоада и отправка в Elasticsearch.
         """
-        try:
             
-            await self.ensure_index_exists()
+        await self.ensure_index_exists()
 
-            while True:
-                
-                docs = await self.fetch_from_queue()
-                
-                if not docs:
-                    logger.debug("Очередь Redis пуста. Ожидание следующей попытки...")
-                    await self.wait.wait()
-                    
-                else:
-                    
-                    valid_docs: List[ModelType] = self.validate_batch(docs)
-                    
-                    payload: List[Dict[str, Any]] = self.prepare_bulk_payload(valid_docs)
-                    
-                    if payload:
-                        
-                        await self.send_bulk_to_es(payload)
-                        
-                    self.wait.reset()
-                    
-        finally:
+        while True:
+            docs = await self.fetch_from_queue()
+            valid_docs: List[ModelType] = self.validate_batch(docs)
+            payload: List[Dict[str, Any]] = self.prepare_bulk_payload(valid_docs)
             
-            await self.cleanup()
+            if payload:
+                await self.send_bulk_to_es(payload)
+                
+            await self.redis_conn.publish(f"{self.queue_name}:space", "1") # Уведомляем продюсеров       
+    

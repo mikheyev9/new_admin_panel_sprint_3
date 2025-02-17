@@ -1,17 +1,6 @@
-MAX_LAST_MODIFIED_PERSON = """SELECT MAX(modified) FROM content.person;"""
+MAX_LAST_MODIFIED = """SELECT MAX(modified) FROM content.film_work;"""
 
-FETCH_PERSONS_BATCH = """
-SELECT 
-    p.id,
-    p.modified,
-    p.full_name
-FROM content.person p
-WHERE p.modified >= $1
-ORDER BY p.modified, p.id
-LIMIT $2 OFFSET $3
-"""
-
-FETCH_FILMS_BY_PERSON = """
+FETCH_FILMS_BATCH = """
 SELECT 
     fw.id,
     fw.modified,
@@ -46,6 +35,8 @@ LEFT JOIN content.genre_film_work gfw ON fw.id = gfw.film_work_id
 LEFT JOIN content.genre g ON gfw.genre_id = g.id
 LEFT JOIN content.person_film_work pfw ON fw.id = pfw.film_work_id
 LEFT JOIN content.person p ON pfw.person_id = p.id
-WHERE p.id = $1
+WHERE fw.modified > $1 OR (fw.modified = $1 AND fw.id > $2)
 GROUP BY fw.id
+ORDER BY fw.modified, fw.id
+LIMIT $3;
 """

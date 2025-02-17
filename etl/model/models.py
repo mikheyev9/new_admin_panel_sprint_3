@@ -4,6 +4,26 @@ from typing import List, Optional, Union
 from uuid import UUID
 from datetime import datetime
 
+from pydantic import BaseModel, Field, field_validator
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
+from uuid import UUID
+
+class GenreModel(BaseModel):
+    """Модель жанра для передачи в Redis и Elasticsearch."""
+
+    id: str = Field(alias="id")
+    name: str
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def convert_uuid_to_str(cls, value: UUID | str) -> str:
+        """Преобразует UUID в строку перед валидацией."""
+        return str(value) if isinstance(value, UUID) else value
+
+
+
 
 class Person(BaseModel):
     id: str = Field(default="")

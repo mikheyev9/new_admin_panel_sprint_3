@@ -4,9 +4,9 @@ from typing import List, Dict, Any
 
 from pydantic import ValidationError
 
-from transform.models import FilmModel
-from load.base_loader import BaseElasticConsumer
-from load.elastic_indexes import MOVIES_SETTINGS
+from model.models import FilmModel
+from push_to_elastic.base_loader import BaseElasticConsumer
+from push_to_elastic.elastic_settings.movies import MOVIES_SETTINGS
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,7 @@ class FilmLoader(BaseElasticConsumer[FilmModel]):
         valid_films = []
         
         for film_str in docs_json:
-            
             try:
-                
                 film_dict = json.loads(film_str)
                 film = FilmModel(**film_dict)
                 valid_films.append(film)

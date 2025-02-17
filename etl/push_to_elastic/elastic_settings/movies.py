@@ -1,6 +1,6 @@
 MOVIES_SETTINGS = {
             "settings": {
-                "refresh_interval": "1s",
+                "refresh_interval": "10s",
                 "analysis": {
                     "filter": {
                         "english_stop": {"type": "stop", "stopwords": "_english_"},
