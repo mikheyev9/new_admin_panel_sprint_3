@@ -8,50 +8,50 @@ logger = logging.getLogger(__name__)
 
 
 def backoff(
-        start_sleep_time: float = 2,
-        factor: float = 2,
-        border_sleep_time: float = 30,
         exceptions: Tuple[Type[BaseException], ...] = (Exception,),
-        max_attempts: int = 100
+        start_sleep_time: float = 2.0,
+        factor: float = 2.0,
+        border_sleep_time: float = 30.0,
+        max_attempts: int = 10,
+        jitter: bool = True
 ):
     """
-    Декоратор для повторного выполнения функции через некоторое время, если возникла ошибка.
-    Добавляет экспоненциальный рост времени повтора с ограничением и jitter.
+    Декоратор для повторного выполнения асинхронной функции с экспоненциальным ростом задержки.
 
-    :param start_sleep_time: начальное время ожидания
-    :param factor: во сколько раз увеличивать время ожидания
-    :param border_sleep_time: максимальное время ожидания
-    :param exceptions: типы ошибок, для которых требуется повтор
-    :param max_attempts: максимальное количество попыток
+    :param exceptions: Исключения, при которых необходимо повторить выполнение
+    :param start_sleep_time: Начальное время ожидания перед повторной попыткой
+    :param factor: Множитель увеличения времени ожидания
+    :param border_sleep_time: Максимальное время ожидания между попытками
+    :param max_attempts: Максимальное количество попыток
+    :param jitter: Добавлять ли случайный разброс к задержке
     """
 
-    def func_wrapper(func: Callable):
+    def decorator(func: Callable):
         @wraps(func)
-        async def inner(*args, **kwargs):
-            attempts = 0
+        async def wrapper(*args, **kwargs):
             sleep_time = start_sleep_time
 
-            while attempts < max_attempts:
+            for attempt in range(1, max_attempts + 1):
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
-                    attempts += 1
-                    jitter = random.uniform(0, sleep_time * 0.1)
-                    wait_time = min(sleep_time + jitter, border_sleep_time)
+                    if attempt >= max_attempts:
+                        logger.error(f"Функция {func.__name__} достигла максимального числа попыток ({max_attempts}): {e}")
+                        raise e
+
+                    wait_time = min(sleep_time, border_sleep_time)
+                    if jitter:
+                        wait_time += random.uniform(0, wait_time * 0.1)
 
                     logger.warning(
                         f"Ошибка {e.__class__.__name__}: {e}. "
-                        f"Попытка {attempts}/{max_attempts}. "
+                        f"Попытка {attempt}/{max_attempts}. "
                         f"Повтор через {wait_time:.2f} секунд."
                     )
-
-                    if attempts >= max_attempts:
-                        logger.error(f"Превышено количество попыток для функции {func.__name__}.")
-                        raise e
 
                     await asyncio.sleep(wait_time)
                     sleep_time *= factor
 
-        return inner
+        return wrapper
 
-    return func_wrapper
+    return decorator
