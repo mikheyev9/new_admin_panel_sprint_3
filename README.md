@@ -20,6 +20,10 @@
 	sudo chown -R 1000:1000 ./data/es_data
 	sudo chmod -R 777 ./data/es_data
 
+Для удобства запустите скрипт настройки директорий:
+
+	make setup_directory_for_elasticsearch
+
 3️⃣ Запустите сервисы через Docker Compose
 
 Выполните команду:

@@ -1,15 +1,25 @@
 #!/bin/bash
+# Директория для данных Elasticsearch
+ES_DATA_DIR="./data/es_data"
 
-# This script sets up the required directory and permissions for Elasticsearch data
-# Elasticsearch runs as user with UID 1000 and requires specific permissions to access data directory
+# Проверка существования директории
+if [ ! -d "$ES_DATA_DIR" ]; then
+    echo "Создаю директорию: $ES_DATA_DIR"
+    sudo mkdir -p "$ES_DATA_DIR"
+fi
 
-# Create elasticsearch data directory (-p flag creates parent directories if they don't exist)
-sudo mkdir -p ./data/es_data
+# Проверка владельца (UID 1000)
+OWNER_UID=$(stat -c "%u" "$ES_DATA_DIR")
+if [ "$OWNER_UID" -ne 1000 ]; then
+    echo "Меняю владельца директории: $ES_DATA_DIR"
+    sudo chown -R 1000:1000 "$ES_DATA_DIR"
+fi
 
-# Change ownership of the directory to UID 1000 (default elasticsearch user)
-# Format: chown user:group directory
-sudo chown -R 1000:1000 ./data/es_data
+# Проверка прав доступа
+PERMISSIONS=$(stat -c "%a" "$ES_DATA_DIR")
+if [ "$PERMISSIONS" != "777" ]; then
+    echo "Меняю права доступа на 777: $ES_DATA_DIR"
+    sudo chmod -R 777 "$ES_DATA_DIR"
+fi
 
-# Set full read/write/execute permissions (777) for the directory
-# This ensures elasticsearch can fully access the directory
-sudo chmod -R 777 ./data/es_data
+echo "✅ Директории готовы к использованию"
