@@ -18,8 +18,10 @@ from pull_from_postgres.films.film_from_db import FilmProducer
 from pull_from_postgres.films.film_from_db_by_genre import GenreProducer
 from pull_from_postgres.films.film_from_db_by_person import PersonProducer
 from pull_from_postgres.genres.genre_from_db import GenresGenreProducer
+from pull_from_postgres.persons.person_from_db import PersonsOnlyProducer
 from push_to_elastic.film_loader_to_elastic import FilmLoader
 from push_to_elastic.genre_loader_to_elastic import GenreLoader
+from push_to_elastic.person_loader_to_elastic import PersonLoader
 
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
 REDIS_URL = os.getenv("REDIS_URL")
@@ -28,6 +30,7 @@ ES_BASE_URL = os.getenv("ES_BASE_URL")
 
 QUEUE_FILM = "film_queue"
 QUEUE_GENRES = "genres_queue"
+QUEUE_PERSONS = "persons_queue"
 QUEUE_LIMIT = 500
 
 
@@ -49,24 +52,30 @@ async def main():
     genres_producer = GenresGenreProducer(pg_pool=pg_pool,redis_conn=redis_pool,
                                         queue_name=QUEUE_GENRES, queue_limit=QUEUE_LIMIT,
                                         batch_size=500,)
-
+    persons_producer = PersonsOnlyProducer(pg_pool=pg_pool,redis_conn=redis_pool,
+                                          queue_name=QUEUE_PERSONS, queue_limit=QUEUE_LIMIT,
+                                          batch_size=500,)
     
     # consumer загружают данные из Redis в Elasticsearch
     film_consumer = FilmLoader(redis_conn=redis_pool, es_client=es_client,
                          batch_size=1000, queue_name=QUEUE_FILM, es_index="movies")
     genres_consumer = GenreLoader(redis_conn=redis_pool, es_client=es_client, batch_size=1000,
                                   queue_name=QUEUE_GENRES,es_index="genres")
+    person_consumer = PersonLoader(redis_conn=redis_pool, es_client=es_client, batch_size=1000,
+                                  queue_name=QUEUE_PERSONS,es_index="persons")
     
     try:
         await asyncio.gather(
             producer.run(),
             person_producer.run(),
             genre_producer.run(),
+            persons_producer.run(),
             
             genres_producer.run(),
             
             film_consumer.run(),
             genres_consumer.run(),
+            person_consumer.run(),
         )
         
     finally:

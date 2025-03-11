@@ -12,7 +12,6 @@ from uuid import UUID
 
 class GenreModel(BaseModel):
     """Модель жанра для передачи в Redis и Elasticsearch."""
-
     id: str = Field(alias="id")
     name: str
 
@@ -23,6 +22,23 @@ class GenreModel(BaseModel):
         return str(value) if isinstance(value, UUID) else value
 
 
+class PersonDBModel(BaseModel):
+    id: str = Field(alias="id")
+    full_name: str  # Соответствует полю в базе
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def convert_uuid_to_str(cls, value: UUID | str) -> str:
+        return str(value) if isinstance(value, UUID) else value
+    
+class PersonElasticModel(BaseModel):
+    id: str = Field(alias="id")
+    name: str = Field(alias="full_name")  # В Elasticsearch требуется `name`
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def convert_uuid_to_str(cls, value: UUID | str) -> str:
+        return str(value) if isinstance(value, UUID) else value
 
 
 class Person(BaseModel):
