@@ -240,5 +240,5 @@ class BaseElasticConsumer(ABC, Generic[ModelType]):
             if payload:
                 await self.send_bulk_to_es(payload)
                 
-            await self.redis_conn.publish(f"{self.queue_name}:space", "1") # Уведомляем продюсеров       
+            await self.redis_conn.publish(f"{self.queue_name}:space", "1") # Уведомляем продюсеров  etl/pull_from_postgres/***_from_db.py (появились новые данные)
     

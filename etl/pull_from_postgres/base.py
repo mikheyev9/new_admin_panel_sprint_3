@@ -141,7 +141,7 @@ class BaseProducer(ABC):
 
             async with self.redis_conn.pipeline() as pipe:
                 pipe.rpush(self.queue_name, *chunk)
-                pipe.publish(f"{self.queue_name}:new_data", "1")  # Уведомляем Loader (появились новые данные)
+                pipe.publish(f"{self.queue_name}:new_data", "1")  # Уведомляем etl.push_to_elastic.genre_loader_to_elastic (появились новые данные)
                 await pipe.execute()
 
             logger.info(f"[{self.queue_name}] Добавлено {len(chunk)} записей в очередь.")

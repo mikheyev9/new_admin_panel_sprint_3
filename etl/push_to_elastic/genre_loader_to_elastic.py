@@ -32,7 +32,6 @@ class GenreLoader(BaseElasticConsumer[GenreModel]):
         for genre_str in docs_json:
             try:
                 genre_dict = json.loads(genre_str)
-                logger.debug(f"Полученные данные для валидации: {genre_dict}")
                 genre = GenreModel(**genre_dict)
                 valid_genres.append(genre)
 
